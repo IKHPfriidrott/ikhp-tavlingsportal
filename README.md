@@ -1,44 +1,56 @@
-# IKHP Tävlingsportal – serverbaserad utvecklingsversion
+# IKHP Tävlingsportal – Render testmiljö
 
-## Starta lokalt
-Kräver Python 3.10 eller senare. Inga extra Python-paket behövs.
+**Det här paketet är endast för test med påhittade uppgifter.** Det är inte en produktionslösning för föreningens personuppgifter.
 
-**Windows PowerShell:**
+## 1. Publicera på Render (enklaste vägen)
+1. Skapa ett **privat** repository på GitHub och ladda upp filerna i den här ZIP-filen direkt till repositoryts rot.
+2. Öppna [Render Dashboard](https://dashboard.render.com/) och välj **New → Blueprint**.
+3. Koppla GitHub-repositoryt. Render läser `render.yaml` och föreslår en kostnadsfri Python Web Service.
+4. Ange **IKHP_ADMIN_PASSWORD** (ett unikt starkt testlösenord) och **IKHP_CLUB_PASSWORD** (ett annat testlösenord) när Render frågar efter miljövariablerna. Spara inte lösenorden i GitHub.
+5. Klicka på **Apply / Deploy**. Vänta på lyckad driftsättning.
+6. Öppna HTTPS-adressen som Render visar (ofta `https://ikhp-tavlingsportal-test.onrender.com` om namnet är ledigt). Den exakta adressen bestäms av Render.
+7. Testa kalendern, **Visa anmälda**, anmälan och administratörens **Historik och anmälningar**.
+
+## 2. Vad är förifyllt?
+Två tydligt märkta DEMO-tävlingar för 2027 och tre påhittade deltagare. Alla anmälningar visas offentligt med namn, klass och grenar. Testa gärna med namn som `Testperson Ett` och e-post som `test@example.invalid`.
+
+## 3. Viktiga begränsningar
+- **Ingen riktig e-post skickas** i testmiljön, även om SMTP-variabler finns. Bekräftelsen visas i appen.
+- **Ingen extern anmälan skickas**. Knappen är inaktiv.
+- SQLite-databasen ligger på Render-instansens tillfälliga filsystem. **Data kan försvinna vid omstart, ny driftsättning eller annan återställning**. De inbyggda DEMO-uppgifterna skapas då igen.
+- Administratörshistorik kräver inloggning och API:et svarar 403 utan administratörssession.
+- Testmiljön har grundläggande skydd men är **inte godkänd för verkliga personuppgifter eller skarp drift**. Produktionsdrift kräver bland annat säkerhetsgranskning, CSRF-strategi, bättre sessions- och lösenordshantering, beständig databas, backup och GDPR-rutiner.
+- Det finns ingen import från EasyRecord, Track and Field, Webathletics eller Friidrottsanmälan.
+- Bankgiro är en platshållare och efteranmälningsbetalningar ska inte göras i testmiljön.
+- Render kan ändra tillgängliga planer och Blueprint-beteende. Kontrollera plan och eventuell kostnad i Render innan du godkänner.
+
+## 4. Köra lokalt
+Python 3.10 eller senare, inga extra paket.
+
+Windows PowerShell:
 ```powershell
-$env:IKHP_ADMIN_PASSWORD="välj-ett-starkt-adminlösenord"
-$env:IKHP_CLUB_PASSWORD="välj-ett-gemensamt-klubblösenord"
-$env:IKHP_BANKGIRO="ange-riktigt-bankgiro"
+$env:IKHP_ADMIN_PASSWORD="eget-starkt-testlösenord"
+$env:IKHP_CLUB_PASSWORD="eget-annat-testlösenord"
 python server.py
+```
+macOS/Linux:
+```bash
+export IKHP_ADMIN_PASSWORD='eget-starkt-testlösenord'
+export IKHP_CLUB_PASSWORD='eget-annat-testlösenord'
+python3 server.py
 ```
 Öppna http://localhost:8080.
 
-**macOS / Linux:**
-```bash
-export IKHP_ADMIN_PASSWORD='välj-ett-starkt-adminlösenord'
-export IKHP_CLUB_PASSWORD='välj-ett-gemensamt-klubblösenord'
-export IKHP_BANKGIRO='ange-riktigt-bankgiro'
-python3 server.py
-```
+## 5. Förväntat testflöde
+1. Kalendern visar två demotävlingar.
+2. Visa anmälda visar påhittade deltagare.
+3. Gör en anmälan med födelseår 2012 till F15 eller P15 i Junespelen 2027 och med klubbens testlösenord.
+4. Appen bekräftar mottagandet, men skickar inget mejl.
+5. Logga in under Administration, öppna Historik, markera en anmälan som officiellt registrerad (endast som test).
+6. Kontrollera att Historik inte finns i den publika menyn och att admin-API kräver inloggning.
 
-## Automatisk e-post
-Sätt `SMTP_HOST`, `SMTP_PORT` (standard 587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`.
-Servern använder STARTTLS som standard; sätt `SMTP_SSL=true` och `SMTP_PORT=465` för implicit TLS.
-När anmälan registreras försöker servern skicka ett bekräftelsemejl. Resultatet (`sent` eller `failed`) sparas i databasen och visas i adminhistoriken. Om SMTP inte är konfigurerat sparas anmälan men inget mejl skickas.
-
-## Officiell anmälningsstatus
-Administratören kan manuellt markera en anmälan som officiellt registrerad. Detta loggas i `audit`.
-Knappen **Bekräfta och skicka in** är avstängd tills `IKHP_EXTERNAL_API_URL` och `IKHP_EXTERNAL_API_TOKEN` har konfigurerats för en *verifierad och behörig* adapter.
-Adaptern ska acceptera HTTP POST JSON, `Authorization: Bearer <token>` och `Idempotency-Key`. Den måste returnera JSON i formen `{"status":"confirmed","reference":"extern-id"}` för att portalen ska markera anmälan som bekräftad. Detta är **inte** en färdig koppling till EasyRecord, Track and Field, Webathletics eller Friidrottsanmälan.
-
-## Historik
-Historikknappen visas endast efter administratörsinloggning. Historikens API kräver dessutom giltig administratörssession; ett direktanrop utan session ger 403. Inloggningen använder en serverlagrad sessionsnyckel i en HttpOnly-cookie.
-
-## Viktigt inför produktionsdrift
-- Använd HTTPS och sätt `IKHP_HTTPS=1` för Secure-cookie.
-- Lägg till CSRF-skydd, inloggningsbegränsning, sessionstidsgräns, backup och robust e-postkö innan offentlig driftsättning.
-- Kör bakom en riktig webbserver/reverse proxy; `http.server` är avsett för utveckling, inte produktion.
-- Säkerställ GDPR-rutiner och rättslig grund för offentlig publicering av barns namn, klass och grenar.
-- För närvarande stöds manuell tävlingsregistrering; externa tävlingsimporter är inte implementerade.
-- Gemensamt klubb-lösenord lagras hashat i SQLite. Administratörslösenordet anges via miljövariabel. Varken lösenord eller SMTP-uppgifter ska läggas i källkoden.
-- Bankgiro måste sättas till IKHP:s riktiga bankgiro innan användning.
-- Åldersklassfiltreringen är en förenklad modell som ska valideras mot respektive tävlings regelverk.
+## 6. Filer
+- `server.py`: Pythonserver, SQLite, testdata, adminsessioner och API.
+- `index.html`: responsivt användargränssnitt.
+- `render.yaml`: Render Blueprint.
+- `.gitignore`: hindrar oavsiktlig incheckning av lokal databas.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """IKHP portal. Python 3.10+, no third-party packages."""
 import os, json, sqlite3, secrets, hashlib, hmac, smtplib, ssl, urllib.request, urllib.error, threading
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from email.message import EmailMessage
@@ -23,7 +23,10 @@ EXTERNAL_URL=os.environ.get("IKHP_EXTERNAL_API_URL","")
 EXTERNAL_TOKEN=os.environ.get("IKHP_EXTERNAL_API_TOKEN","")
 PORT=int(os.environ.get("PORT","8080"))
 sessions={}
+login_attempts={}
 lock=threading.Lock()
+TEST_MODE=True
+SESSION_LIFETIME=timedelta(hours=8)
 def hash_pw(password,salt=None):
     salt=salt or secrets.token_bytes(16)
     return salt.hex()+":"+hashlib.pbkdf2_hmac("sha256",password.encode(),salt,260000).hex()
@@ -39,6 +42,7 @@ def connect():
     c.execute("PRAGMA foreign_keys=ON")
     return c
 def init():
+    Path(DB).parent.mkdir(parents=True,exist_ok=True)
     with connect() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
@@ -48,6 +52,33 @@ def init():
         """)
         if not c.execute("SELECT 1 FROM settings WHERE key='club_hash'").fetchone():
             c.execute("INSERT INTO settings VALUES('club_hash',?)",(hash_pw(CLUB),))
+        if not c.execute("SELECT 1 FROM competitions").fetchone():
+            demo_competitions=[
+                ("Junespelen – DEMO","2027-06-13","2027-06-01","2027-06-08","",1,[
+                    {"name":"F15","gender":"F","age":15,"events":[{"name":"100 m","fee":100,"late_fee":200},{"name":"Längd","fee":100,"late_fee":200},{"name":"Kula","fee":100,"late_fee":200}]},
+                    {"name":"P15","gender":"P","age":15,"events":[{"name":"100 m","fee":100,"late_fee":200},{"name":"200 m","fee":100,"late_fee":200}]},
+                    {"name":"F14","gender":"F","age":14,"events":[{"name":"Höjd","fee":100,"late_fee":200},{"name":"Längd","fee":100,"late_fee":200}]}
+                ]),
+                ("IKHP Sommarspel – DEMO","2027-06-27","2027-06-18","2027-06-23","",1,[
+                    {"name":"F13","gender":"F","age":13,"events":[{"name":"60 m","fee":90,"late_fee":180},{"name":"Längd","fee":90,"late_fee":180}]},
+                    {"name":"P13","gender":"P","age":13,"events":[{"name":"60 m","fee":90,"late_fee":180},{"name":"Längd","fee":90,"late_fee":180}]}
+                ])
+            ]
+            ids=[]
+            for name,day,regular,deadline,url,published,classes in demo_competitions:
+                cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes,source) VALUES(?,?,?,?,?,?,?,?)",
+                              (name,day,regular,deadline,url,published,json.dumps(classes,ensure_ascii=False),"Demodata"))
+                ids.append(cur.lastrowid)
+            demo_entries=[
+                (ids[0],"Anna Testperson",2012,"F","anna@example.invalid","F15",["100 m","Längd"],200,"pending"),
+                (ids[0],"Erik Exempel",2012,"P","erik@example.invalid","P15",["200 m"],100,"confirmed"),
+                (ids[1],"Sara Test",2014,"F","sara@example.invalid","F13",["60 m"],90,"pending")
+            ]
+            for cid,name,birth,gender,email,cl,events,fee,status in demo_entries:
+                c.execute("""INSERT INTO registrations
+                (competition_id,name,birth_year,gender,email,class_name,events,regular_total,late_surcharge,total,created_at,status,email_status)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cid,name,birth,gender,email,cl,json.dumps(events,ensure_ascii=False),fee,0,fee,now(),status,"demo"))
 def now():return datetime.now(timezone.utc).isoformat()
 def event_info(comp,cl,chosen):
     byname={e['name']:e for e in cl['events']}
@@ -58,6 +89,8 @@ def event_info(comp,cl,chosen):
     surcharge=sum(max(0,int(byname[x].get("late_fee",byname[x]["fee"]))-int(byname[x]["fee"])) for x in chosen) if late else 0
     return regular,surcharge,regular+surcharge
 def send_mail(reg,comp):
+    if TEST_MODE:
+        raise RuntimeError("Testläge: e-postutskick är avstängt")
     if not SMTP_HOST or not SMTP_FROM:raise RuntimeError("SMTP är inte konfigurerad")
     msg=EmailMessage()
     msg["From"]=SMTP_FROM
@@ -110,17 +143,26 @@ class Handler(BaseHTTPRequestHandler):
         try:cookie.load(self.headers.get("Cookie",""))
         except Exception:return ""
         return cookie.get("ikhp_session").value if "ikhp_session" in cookie else ""
-    def admin(self):return self.token() in sessions
+    def admin(self):
+        token=self.token()
+        with lock:
+            expiry=sessions.get(token)
+            if expiry is None:return False
+            if datetime.now(timezone.utc)>expiry:
+                sessions.pop(token,None)
+                return False
+            return True
     def require_admin(self):
         if not self.admin():self.json(403,{"error":"Administratörsinloggning krävs"});return False
         return True
     def do_GET(self):
         p=urlparse(self.path).path
+        if p=="/health":return self.json(200,{"ok":True,"test_mode":True})
         if p=="/":
             b=(BASE/"index.html").read_bytes()
             self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8")
             self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b);return
-        if p=="/api/me":return self.json(200,{"admin":self.admin(),"smtp_ready":bool(SMTP_HOST and SMTP_FROM) if self.admin() else False,"external_ready":bool(EXTERNAL_URL and EXTERNAL_TOKEN) if self.admin() else False})
+        if p=="/api/me":return self.json(200,{"admin":self.admin(),"smtp_ready":False,"external_ready":False,"test_mode":True})
         if p=="/api/competitions":
             with connect() as c:
                 rows=c.execute("SELECT * FROM competitions WHERE published=1 ORDER BY date").fetchall()
@@ -144,13 +186,28 @@ class Handler(BaseHTTPRequestHandler):
         return self.json(404,{"error":"Sidan finns inte"})
     def do_POST(self):
         p=urlparse(self.path).path
+        # Basic same-origin check for browser requests.
+        origin=self.headers.get("Origin","")
+        if origin:
+            parsed=urlparse(origin)
+            if parsed.netloc!=self.headers.get("Host","") or parsed.scheme not in ("https","http"):
+                return self.json(403,{"error":"Otillåtet ursprung"})
         try:
             data=self.body()
             if p=="/api/login":
                 if not ADMIN:return self.json(503,{"error":"Administratörslösenord saknas i serverkonfigurationen"})
-                if not hmac.compare_digest(str(data.get("password","")),ADMIN):return self.json(401,{"error":"Fel lösenord"})
+                ip=self.client_address[0]
+                with lock:
+                    recent=[t for t in login_attempts.get(ip,[]) if (datetime.now(timezone.utc)-t).total_seconds()<900]
+                    login_attempts[ip]=recent
+                    if len(recent)>=8:return self.json(429,{"error":"För många inloggningsförsök. Försök senare."})
+                if not hmac.compare_digest(str(data.get("password","")),ADMIN):
+                    with lock:login_attempts[ip].append(datetime.now(timezone.utc))
+                    return self.json(401,{"error":"Fel lösenord"})
                 token=secrets.token_urlsafe(32)
-                with lock:sessions[token]=True
+                with lock:
+                    sessions[token]=datetime.now(timezone.utc)+SESSION_LIFETIME
+                    login_attempts.pop(ip,None)
                 self.send_response(200);self.send_header("Set-Cookie",f"ikhp_session={token}; HttpOnly; SameSite=Strict; Path=/"+("; Secure" if os.environ.get("IKHP_HTTPS")=="1" else ""))
                 self.send_header("Content-Type","application/json");self.end_headers();self.wfile.write(b'{"ok":true}');return
             if p=="/api/logout":
@@ -176,8 +233,8 @@ class Handler(BaseHTTPRequestHandler):
                     rid=cur.lastrowid
                     c.execute("INSERT INTO audit(registration_id,action,created_at) VALUES(?,?,?)",(rid,"Mottagen internt",now()))
                     reg=c.execute("SELECT * FROM registrations WHERE id=?",(rid,)).fetchone()
-                try:send_mail(reg,comp);email_status="sent";error=""
-                except Exception as ex:email_status="failed";error=str(ex)[:300]
+                email_status="demo"
+                error="E-postutskick är avstängt i testmiljön"
                 with connect() as c:c.execute("UPDATE registrations SET email_status=?,email_error=? WHERE id=?",(email_status,error,rid))
                 return self.json(201,{"id":rid,"email_status":email_status,"regular_total":regular,"late_surcharge":surcharge,"total":total})
             if p=="/api/admin/competitions":
@@ -207,6 +264,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200,{"ok":True})
             if p.startswith("/api/admin/send/"):
                 if not self.require_admin():return
+                if TEST_MODE:return self.json(409,{"error":"Vidareanmälan är avstängd i testmiljön"})
                 if not EXTERNAL_URL or not EXTERNAL_TOKEN:return self.json(409,{"error":"Ingen verifierad integration för vidareanmälan är konfigurerad"})
                 rid=int(p.rsplit("/",1)[1])
                 with connect() as c:
