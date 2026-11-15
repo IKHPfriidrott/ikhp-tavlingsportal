@@ -57,3 +57,6 @@ python3 server.py
 
 ## Redigera manuellt registrerade tävlingar
 Under Administration → Tävlingar och publicering, välj **Redigera tävling**. Ändra namn, datum, länk, publicering, klasser, grenar och avgifter. Lägg till eller ta bort klasser och grenar och välj **Spara ändringar**. Endast manuella tävlingar (inklusive demodata) kan ändras. Redan gjorda anmälningar ändras inte retroaktivt.
+
+## Uppdatering v3 – anmälda i tabell
+Knappen **Visa anmälda** visar nu en tabell med en rad per anmälan och kolumnerna **Namn**, **Klass** och **Grenar**. Alla grenar för en anmälan står i samma cell. Tabellen kan scrollas i sidled på smala skärmar.
