@@ -78,3 +78,10 @@ Vid anmälan visas samtliga klasser som finns upplagda för tävlingen, även om
 - Upp till 35 års tävlingsålder: endast närmaste tillgängliga åldersklass som är minst lika hög som deltagarens ålder, och högst 35, plus KS/MS. Exempel: 20 år → M22 och MS om M22 finns.
 - Över 35 år: endast klasser med klassålder högst deltagarens tävlingsålder samt KS/MS. Exempel: 42 år → M40, M35 och MS om dessa finns, men aldrig M45.
 - Både webbgränssnitt och server validerar samma regler.
+
+
+## Version 7 – öppna seniorklasser
+- **MS** gäller endast pojkar/män (P), **KS** endast flickor/kvinnor (F).
+- När MS eller KS anges i klassformuläret töms och låses fältet Klassålder. Klassen sparas med `age: null`.
+- Servern kontrollerar könskategori och tom klassålder både när tävling skapas och redigeras.
+- Vid anmälan är MS/KS tillgängliga oavsett deltagarens ålder, men bara för rätt könskategori.

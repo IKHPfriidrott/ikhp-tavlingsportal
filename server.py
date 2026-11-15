@@ -119,6 +119,36 @@ def send_mail(reg,comp):
             smtp.send_message(msg)
 def competition_public(c):
     d=dict(c);d["classes"]=json.loads(d["classes"]);return d
+def validate_competition_classes(classes):
+    if not isinstance(classes,list) or not classes:raise ValueError("Minst en klass krävs")
+    seen=set()
+    for cl in classes:
+        name=str(cl.get("name","")).strip()
+        upper=name.upper()
+        if not name or upper in seen:raise ValueError("Ogiltig eller dubblerad klass")
+        seen.add(upper)
+        expected="P" if upper=="MS" else "F" if upper=="KS" else None
+        if cl.get("gender") not in ("F","P") or (expected and cl["gender"]!=expected):
+            raise ValueError("MS måste vara pojke/man och KS flicka/kvinna")
+        if expected:
+            if cl.get("age") not in (None,""):
+                raise ValueError("Lämna klassålder tom för MS och KS")
+            cl["age"]=None
+        else:
+            try:age=int(cl.get("age"))
+            except (TypeError,ValueError):raise ValueError("Ange klassålder för övriga klasser")
+            if not 1<=age<=120:raise ValueError("Ogiltig klassålder")
+            cl["age"]=age
+        events=cl.get("events")
+        if not isinstance(events,list) or not events:raise ValueError("Alla klasser måste ha minst en gren")
+        event_names=set()
+        for ev in events:
+            en=str(ev.get("name","")).strip()
+            try:fee=int(ev.get("fee"));late=int(ev.get("late_fee"))
+            except (TypeError,ValueError):raise ValueError("Ogiltig anmälningsavgift")
+            if not en or en in event_names or fee<0 or late<fee:raise ValueError("Kontrollera gren och avgifter")
+            event_names.add(en)
+
 def valid_class(cl, gender, birth, year, classes=None):
     """Juniorer: enbart närmaste åldersklass uppåt, samt MS/KS.
     Veteraner över 35: åldersklasser högst egen ålder, samt MS/KS.
@@ -254,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
                 name=str(data["name"]).strip();date.fromisoformat(data["date"]);date.fromisoformat(data["regular_deadline"]);date.fromisoformat(data["final_deadline"])
                 if not name or data["regular_deadline"]>data["final_deadline"]:raise ValueError("Kontrollera tävlingens datum")
                 classes=data["classes"]
-                if not classes or any(not x.get("name") or (str(x.get("name","")).strip().upper() not in ("KS","MS") and int(x.get("age",0))<1) or not x.get("events") for x in classes):raise ValueError("Lägg till giltiga klasser och grenar")
+                validate_competition_classes(classes)
                 with connect() as c:
                     cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes) VALUES(?,?,?,?,?,?,?)",(name,data["date"],data["regular_deadline"],data["final_deadline"],str(data.get("url","")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False)))
                 return self.json(201,{"id":cur.lastrowid})
@@ -266,19 +296,7 @@ class Handler(BaseHTTPRequestHandler):
                 for d in (day,regular,final):date.fromisoformat(d)
                 if not name or len(name)>200 or regular>final:raise ValueError("Kontrollera namn och datum")
                 classes=data["classes"]
-                if not isinstance(classes,list) or not classes:raise ValueError("Minst en klass krävs")
-                names=set()
-                for cl in classes:
-                    cn=str(cl["name"]).strip();age=int(cl["age"])
-                    if not cn or cn in names or cl["gender"] not in ("F","P") or not 1<=age<=120:raise ValueError("Ogiltig eller dubblerad klass")
-                    names.add(cn)
-                    events=cl["events"]
-                    if not isinstance(events,list) or not events:raise ValueError("Alla klasser måste ha minst en gren")
-                    seen=set()
-                    for ev in events:
-                        en=str(ev["name"]).strip();fee=int(ev["fee"]);late=int(ev["late_fee"])
-                        if not en or en in seen or fee<0 or late<fee:raise ValueError("Kontrollera gren och avgifter")
-                        seen.add(en)
+                validate_competition_classes(classes)
                 with connect() as c:
                     old=c.execute("SELECT source FROM competitions WHERE id=?",(cid,)).fetchone()
                     if not old:raise ValueError("Tävlingen finns inte")
