@@ -164,10 +164,9 @@ def valid_class(cl, gender, birth, year, classes=None):
     except (ValueError,TypeError):return False
     if target<1:return False
     age=year-birth
+    if age<20:return age<=target<=22
     if age>=35:return target<=age
     if age>=23:return 23<=target<=age
-    if age<20:
-        return age<=target<=22
     available=[]
     for item in (classes or [cl]):
         if item.get("gender")!=gender or str(item.get("name","")).upper() in ("MS","KS"):continue
