@@ -39,9 +39,10 @@ function validClass(cl,gender,birth,year,classes){
  if(name==='KS'||name==='MS')return true;
  const target=Number(cl.age),age=year-birth;
  if(!Number.isFinite(target)||target<1)return false;
- if(age>35)return target<=age;
+ if(age>=35)return target<=age;
+ if(age>=23)return target>=23&&target<=age;
  const available=classes.filter(x=>x.gender===gender&&!['KS','MS'].includes(String(x.name||'').trim().toUpperCase()))
-  .map(x=>Number(x.age)).filter(n=>Number.isFinite(n)&&n>=age&&n<=35);
+  .map(x=>Number(x.age)).filter(n=>Number.isFinite(n)&&n>=age&&n<=22);
  return available.length>0&&target===Math.min(...available);
 }
 function selectedComp(){return comps.find(c=>String(c.id)===$('rCompetition').value)}
@@ -51,21 +52,26 @@ function updateClasses(){
  const all=c.classes||[];
  const age=birth?Number(c.date.slice(0,4))-birth:null;
  const eligible=all.filter(cl=>validClass(cl,gender,birth||0,Number(c.date.slice(0,4)),all));
- // Föreslå närmaste tillåtna åldersklass ovanför/vid åldern.
- // Om ingen finns: välj närmaste tillåtna yngre klass. KS/MS är reservval.
+ // Under 35 år: föreslå aldrig en lägre åldersklass.
+ // Från 35 år: föreslå aldrig en högre åldersklass.
+ // Seniorklasserna KS/MS används om ingen tillåten åldersklass finns.
  const ageClasses=eligible.filter(cl=>!['KS','MS'].includes(String(cl.name).trim().toUpperCase()));
  let suggested=null;
- if(age!==null&&ageClasses.length){
-   const above=ageClasses.filter(cl=>Number(cl.age)>=age).sort((a,b)=>Number(a.age)-Number(b.age));
-   const below=ageClasses.filter(cl=>Number(cl.age)<age).sort((a,b)=>Number(b.age)-Number(a.age));
-   suggested=(above[0]||below[0]||null);
+ if(age!==null){
+   if(age<23){
+     suggested=[...ageClasses].filter(cl=>Number(cl.age)>=age)
+       .sort((a,b)=>Number(a.age)-Number(b.age))[0]||null;
+   }else{
+     suggested=[...ageClasses].filter(cl=>Number(cl.age)<=age)
+       .sort((a,b)=>Number(b.age)-Number(a.age))[0]||null;
+   }
  }
- if(!suggested)suggested=eligible.find(cl=>['KS','MS'].includes(String(cl.name).trim().toUpperCase()))||eligible[0]||null;
+ if(!suggested)suggested=eligible.find(cl=>['KS','MS'].includes(String(cl.name).trim().toUpperCase()))||null;
  sel.innerHTML=eligible.map(cl=>`<option value="${esc(cl.name)}">${esc(cl.name)}${suggested===cl?' – föreslagen':''}</option>`).join('')||'<option value="">Inga tillåtna klasser</option>';
  if(suggested)sel.value=suggested.name;
  $('classInfo').textContent=age===null
    ?'Ange födelseår för att få en föreslagen klass. Endast klasser för valt kön visas.'
-   :`Tävlingsålder: ${age} år. ${suggested?'Föreslagen klass: '+suggested.name+'.':'Ingen tillåten klass finns.'} Upp till 35 år väljs närmaste åldersklass uppåt. Över 35 år kan du välja din egen eller en yngre åldersklass. KS/MS är alltid öppna inom respektive kön.`;
+   :`Tävlingsålder: ${age} år. ${suggested?'Föreslagen klass: '+suggested.name+'.':'Ingen tillåten klass finns.'} Under 23 år föreslås närmaste klass uppåt (högst 22 år). Mellan 23 och 34 år får man välja klass 23–egen ålder. Från 35 år får man välja egen eller yngre klass. KS/MS är alltid öppna inom respektive kön.`;
  updateEvents();
 }
 function updateEvents(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59');$('rEvents').innerHTML=cl?cl.events.map((e,i)=>`<label class="check"><input type="checkbox" class="eventChoice" value="${i}"> ${esc(e.name)} – ${late?e.late_fee:e.fee} kr</label>`).join(''):'<p class="muted">Inga grenar i vald klass.</p>';document.querySelectorAll('.eventChoice').forEach(e=>e.onchange=updateTotal);updateTotal()}

@@ -85,3 +85,15 @@ Vid anmälan visas samtliga klasser som finns upplagda för tävlingen, även om
 - När MS eller KS anges i klassformuläret töms och låses fältet Klassålder. Klassen sparas med `age: null`.
 - Servern kontrollerar könskategori och tom klassålder både när tävling skapas och redigeras.
 - Vid anmälan är MS/KS tillgängliga oavsett deltagarens ålder, men bara för rätt könskategori.
+
+## Version 8 – föreslagen åldersklass
+- Under 35 år: närmaste tillåtna klass med klassålder minst lika med deltagarens ålder. Aldrig en yngre klass som förslag.
+- Från och med 35 år: närmaste tillåtna klass med klassålder högst lika med deltagarens ålder. Aldrig en äldre klass som förslag.
+- Om ingen tillåten åldersklass finns föreslås MS eller KS, om den klassen finns i tävlingen.
+- Serverns åldersgräns har justerats så att 35-åringar omfattas av reglerna för 35 år och uppåt.
+
+## Version 9 – rättad klassregel 23–34 år
+- Under 23 år: närmaste erbjudna åldersklass som är minst deltagarens ålder, högst 22 år, samt MS/KS.
+- Från 23 till och med 34 år: endast åldersklasser från 23 år till och med deltagarens egen ålder, samt MS/KS. En 34-åring kan välja M30, men inte M22 eller M35.
+- Från 35 år: åldersklasser högst deltagarens egen ålder, samt MS/KS.
+- Reglerna kontrolleras både i webbläsaren och på servern.

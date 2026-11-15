@@ -150,8 +150,10 @@ def validate_competition_classes(classes):
             event_names.add(en)
 
 def valid_class(cl, gender, birth, year, classes=None):
-    """Juniorer: enbart närmaste åldersklass uppåt, samt MS/KS.
-    Veteraner över 35: åldersklasser högst egen ålder, samt MS/KS.
+    """Under 23: nearest offered class >= age, max 22.
+    Ages 23–34: offered classes from 23 through own age.
+    Ages 35+: offered classes up to own age.
+    MS/KS: always permitted for matching gender.
     """
     name=str(cl.get("name","")).strip().upper()
     expected="F" if name=="KS" else "P" if name=="MS" else cl.get("gender")
@@ -161,13 +163,14 @@ def valid_class(cl, gender, birth, year, classes=None):
     except (ValueError,TypeError):return False
     if target<1:return False
     age=year-birth
-    if age>35:return target<=age
+    if age>=35:return target<=age
+    if age>=23:return 23<=target<=age
     available=[]
     for item in (classes or [cl]):
         if item.get("gender")!=gender or str(item.get("name","")).upper() in ("MS","KS"):continue
         try:n=int(item.get("age",0))
         except (ValueError,TypeError):continue
-        if age<=n<=35:available.append(n)
+        if age<=n<=22:available.append(n)
     return bool(available) and target==min(available)
 
 class Handler(BaseHTTPRequestHandler):
