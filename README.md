@@ -54,3 +54,6 @@ python3 server.py
 - `index.html`: responsivt användargränssnitt.
 - `render.yaml`: Render Blueprint.
 - `.gitignore`: hindrar oavsiktlig incheckning av lokal databas.
+
+## Redigera manuellt registrerade tävlingar
+Under Administration → Tävlingar och publicering, välj **Redigera tävling**. Ändra namn, datum, länk, publicering, klasser, grenar och avgifter. Lägg till eller ta bort klasser och grenar och välj **Spara ändringar**. Endast manuella tävlingar (inklusive demodata) kan ändras. Redan gjorda anmälningar ändras inte retroaktivt.

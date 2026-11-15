@@ -246,6 +246,33 @@ class Handler(BaseHTTPRequestHandler):
                 with connect() as c:
                     cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes) VALUES(?,?,?,?,?,?,?)",(name,data["date"],data["regular_deadline"],data["final_deadline"],str(data.get("url","")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False)))
                 return self.json(201,{"id":cur.lastrowid})
+            if p.startswith("/api/admin/edit-competition/"):
+                if not self.require_admin():return
+                cid=int(p.rsplit("/",1)[1])
+                name=str(data["name"]).strip()
+                day=str(data["date"]);regular=str(data["regular_deadline"]);final=str(data["final_deadline"])
+                for d in (day,regular,final):date.fromisoformat(d)
+                if not name or len(name)>200 or regular>final:raise ValueError("Kontrollera namn och datum")
+                classes=data["classes"]
+                if not isinstance(classes,list) or not classes:raise ValueError("Minst en klass krävs")
+                names=set()
+                for cl in classes:
+                    cn=str(cl["name"]).strip();age=int(cl["age"])
+                    if not cn or cn in names or cl["gender"] not in ("F","P") or not 1<=age<=120:raise ValueError("Ogiltig eller dubblerad klass")
+                    names.add(cn)
+                    events=cl["events"]
+                    if not isinstance(events,list) or not events:raise ValueError("Alla klasser måste ha minst en gren")
+                    seen=set()
+                    for ev in events:
+                        en=str(ev["name"]).strip();fee=int(ev["fee"]);late=int(ev["late_fee"])
+                        if not en or en in seen or fee<0 or late<fee:raise ValueError("Kontrollera gren och avgifter")
+                        seen.add(en)
+                with connect() as c:
+                    old=c.execute("SELECT source FROM competitions WHERE id=?",(cid,)).fetchone()
+                    if not old:raise ValueError("Tävlingen finns inte")
+                    if old["source"] not in ("Manuell","Demodata"):return self.json(403,{"error":"Endast manuellt registrerade tävlingar kan ändras"})
+                    c.execute("UPDATE competitions SET name=?,date=?,regular_deadline=?,final_deadline=?,url=?,published=?,classes=? WHERE id=?",(name,day,regular,final,str(data.get("url", "")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False),cid))
+                return self.json(200,{"ok":True})
             if p.startswith("/api/admin/competition/"):
                 if not self.require_admin():return
                 cid=int(p.rsplit("/",1)[1])
