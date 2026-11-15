@@ -226,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
                     comp=c.execute("SELECT * FROM competitions WHERE id=? AND published=1",(cid,)).fetchone()
                     if not comp:raise ValueError("Tävlingen är inte publicerad")
                     cl=next((x for x in json.loads(comp["classes"]) if x["name"]==klass),None)
-                    if not cl or not valid_class(cl,gender,birth,int(comp["date"][:4])):raise ValueError("Klassen är inte tillåten för deltagaren")
+                    if not cl:raise ValueError("Vald klass erbjuds inte i tävlingen")
                     regular,surcharge,total=event_info(comp,cl,events)
                     cur=c.execute("""INSERT INTO registrations(competition_id,name,birth_year,gender,email,class_name,events,regular_total,late_surcharge,total,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(cid,name,birth,gender,email,klass,json.dumps(events,ensure_ascii=False),regular,surcharge,total,now()))

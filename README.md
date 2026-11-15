@@ -60,3 +60,6 @@ Under Administration → Tävlingar och publicering, välj **Redigera tävling**
 
 ## Uppdatering v3 – anmälda i tabell
 Knappen **Visa anmälda** visar nu en tabell med en rad per anmälan och kolumnerna **Namn**, **Klass** och **Grenar**. Alla grenar för en anmälan står i samma cell. Tabellen kan scrollas i sidled på smala skärmar.
+
+## Uppdatering v4 – klassval
+Vid anmälan visas samtliga klasser som finns upplagda för tävlingen, även om klassens ålder eller kategori avviker från deltagarens. Efter att födelseår och kön angetts väljs automatiskt närmaste klass i motsvarande kategori (om sådan finns), märkt "föreslagen". Användaren kan välja en annan klass i listan. Servern kontrollerar att klassen finns i tävlingen men tillämpar inte längre ålders- eller könsspärrar. Administratören behöver därför kontrollera arrangörens regler vid officiell vidareanmälan.

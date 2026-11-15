@@ -34,7 +34,28 @@ async function startReg(id){await view('register');$('rCompetition').value=Strin
 async function loadRegistration(){comps=await api('/api/competitions');let old=$('rCompetition').value;$('rCompetition').innerHTML=comps.map(c=>`<option value="${c.id}">${esc(c.name)} (${esc(c.date)})</option>`).join('');if(comps.some(c=>String(c.id)===old))$('rCompetition').value=old;updateClasses()}
 function validClass(cl,gender,birth,year){let age=year-birth,n=Number(cl.age);if(cl.gender!==gender)return false;if(age<22)return n>=age&&n<=22;if(age>30)return n>=30&&n<=age;return n===age}
 function selectedComp(){return comps.find(c=>String(c.id)===$('rCompetition').value)}
-function updateClasses(){let c=selectedComp(),birth=Number($('rBirth').value),gender=$('rGender').value,s=$('rClass');if(!c||!birth){s.innerHTML='<option>Välj tävling och födelseår</option>';$('rEvents').innerHTML='';return}let age=Number(c.date.slice(0,4))-birth,possible=c.classes.filter(cl=>validClass(cl,gender,birth,Number(c.date.slice(0,4))));s.innerHTML=possible.map(cl=>`<option value="${esc(cl.name)}">${esc(cl.name)}${cl.age===age?' – föreslagen':''}</option>`).join('')||'<option>Ingen tillgänglig klass</option>';$('classInfo').textContent=`Tävlingsålder: ${age} år. ${age<22?'Du kan välja äldre klasser till och med 22 år.':age>30?'Du kan välja yngre veteranklasser från 30 år.':'Endast den egna åldersklassen.'} Endast klasser som arrangören erbjuder visas.`;updateEvents()}
+function updateClasses(){
+ let c=selectedComp(),birth=Number($('rBirth').value),gender=$('rGender').value,sel=$('rClass');
+ if(!c){sel.innerHTML='<option>Ingen tävling vald</option>';$('rEvents').innerHTML='';return}
+ let all=c.classes||[];
+ if(!all.length){sel.innerHTML='<option>Inga klasser i tävlingen</option>';$('rEvents').innerHTML='';return}
+ let age=birth?Number(c.date.slice(0,4))-birth:null;
+ let sameGender=all.filter(cl=>cl.gender===gender);
+ let candidates=sameGender.length?sameGender:all;
+ // Välj närmaste klass i rätt kategori; föredra exakt ålder, annars närmast.
+ let suggested=age===null?null:[...candidates].sort((x,y)=>{
+   const dx=Math.abs(Number(x.age)-age),dy=Math.abs(Number(y.age)-age);
+   if(dx!==dy)return dx-dy;
+   // Vid lika avstånd: välj hellre den äldre åldersklassen.
+   return Number(y.age)-Number(x.age);
+ })[0];
+ sel.innerHTML=all.map(cl=>`<option value="${esc(cl.name)}">${esc(cl.name)}${suggested===cl?' – föreslagen':''}</option>`).join('');
+ if(suggested)sel.value=suggested.name;
+ $('classInfo').textContent=age===null
+   ?'Alla klasser som arrangören erbjuder visas. Ange födelseår och kön för att få en föreslagen klass.'
+   :`Tävlingsålder: ${age} år. Föreslagen klass: ${suggested?.name||'ingen'}. Alla arrangörens klasser går att välja. Kontrollera att vald klass är tillåten enligt tävlingens regler.`;
+ updateEvents();
+}
 function updateEvents(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59');$('rEvents').innerHTML=cl?cl.events.map((e,i)=>`<label class="check"><input type="checkbox" class="eventChoice" value="${i}"> ${esc(e.name)} – ${late?e.late_fee:e.fee} kr</label>`).join(''):'<p class="muted">Inga grenar i vald klass.</p>';document.querySelectorAll('.eventChoice').forEach(e=>e.onchange=updateTotal);updateTotal()}
 function picked(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value);return [...document.querySelectorAll('.eventChoice:checked')].map(e=>cl.events[Number(e.value)])}
 function updateTotal(){let c=selectedComp(),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59'),items=picked(),reg=items.reduce((a,e)=>a+Number(e.fee),0),extra=late?items.reduce((a,e)=>a+Math.max(0,Number(e.late_fee)-Number(e.fee)),0):0;$('rTotal').textContent=(reg+extra)+' kr';$('feeInfo').textContent=extra?`IKHP står för ordinarie avgift. Efteranmälningsavgiften på ${extra} kr ska betalas in till IKHP:s bankgiro enligt bekräftelsemejlet. Ange efteranmälan + namn på inbetalningen.`:'IKHP står för ordinarie anmälningsavgift.'}
