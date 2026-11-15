@@ -8,7 +8,7 @@
 <section id="register" class="view"><h2>Gör en anmälan</h2><div class="card">
 <label>Tävling</label><select id="rCompetition"></select>
 <div class="fields"><div><label>Deltagarens namn</label><input id="rName"></div><div><label>Födelseår</label><input type="number" id="rBirth" min="1900" max="2100"></div><div><label>Kön / klasskategori</label><select id="rGender"><option value="F">Flicka / kvinna</option><option value="P">Pojke / man</option></select></div><div><label>E-postadress</label><input type="email" id="rEmail"></div></div>
-<div id="classInfo" class="notice">Ange födelseår för att se möjliga klasser.</div><label>Välj klass</label><select id="rClass"></select><h3 style="margin-top:18px">Välj grenar</h3><div id="rEvents"></div><hr><div class="row"><strong>Totalt</strong><strong id="rTotal">0 kr</strong></div><div id="feeInfo" class="notice"></div>
+<div id="classInfo" class="notice">Ange födelseår för att se tillåtna klasser och få ett förslag.</div><label>Välj klass</label><select id="rClass"></select><h3 style="margin-top:18px">Välj grenar</h3><div id="rEvents"></div><hr><div class="row"><strong>Totalt</strong><strong id="rTotal">0 kr</strong></div><div id="feeInfo" class="notice"></div>
 <div class="notice warning"><strong>Offentlig anmälningslista:</strong> Alla anmälningar via portalen visas på tävlingens sida. Deltagarens namn, klass och grenar blir synliga för alla besökare. E-post och födelseår visas inte.</div>
 <label class="check"><input type="checkbox" id="rAck"> Jag har förstått att namn, klass och grenar visas offentligt.</label>
 <label>Gemensamt IKHP-lösenord</label><input type="password" id="rPassword" autocomplete="off">
@@ -32,35 +32,47 @@ function openCompUrl(id){let url=comps.find(c=>c.id===id)?.url;if(url&&/^https?:
 async function publicEntries(id){let c=comps.find(x=>x.id===id),rows=await api('/api/public-entries/'+id);$('publicTitle').textContent='Anmälda – '+c.name;$('publicList').innerHTML=rows.length?`<div class="card table-wrap"><table class="entries-table"><thead><tr><th scope="col">Namn</th><th scope="col">Klass</th><th scope="col">Grenar</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.class_name)}</td><td>${r.events.map(esc).join(', ')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="card">Inga anmälningar ännu.</div>';view('publicEntries')}
 async function startReg(id){await view('register');$('rCompetition').value=String(id);updateClasses()}
 async function loadRegistration(){comps=await api('/api/competitions');let old=$('rCompetition').value;$('rCompetition').innerHTML=comps.map(c=>`<option value="${c.id}">${esc(c.name)} (${esc(c.date)})</option>`).join('');if(comps.some(c=>String(c.id)===old))$('rCompetition').value=old;updateClasses()}
-function validClass(cl,gender,birth,year){let age=year-birth,n=Number(cl.age);if(cl.gender!==gender)return false;if(age<22)return n>=age&&n<=22;if(age>30)return n>=30&&n<=age;return n===age}
+function validClass(cl,gender,birth,year,classes){
+ const name=String(cl.name||'').trim().toUpperCase();
+ const expected=name==='KS'?'F':name==='MS'?'P':cl.gender;
+ if(expected!==gender)return false;
+ if(name==='KS'||name==='MS')return true;
+ const target=Number(cl.age),age=year-birth;
+ if(!Number.isFinite(target)||target<1)return false;
+ if(age>35)return target<=age;
+ const available=classes.filter(x=>x.gender===gender&&!['KS','MS'].includes(String(x.name||'').trim().toUpperCase()))
+  .map(x=>Number(x.age)).filter(n=>Number.isFinite(n)&&n>=age&&n<=35);
+ return available.length>0&&target===Math.min(...available);
+}
 function selectedComp(){return comps.find(c=>String(c.id)===$('rCompetition').value)}
 function updateClasses(){
- let c=selectedComp(),birth=Number($('rBirth').value),gender=$('rGender').value,sel=$('rClass');
+ const c=selectedComp(),birth=Number($('rBirth').value),gender=$('rGender').value,sel=$('rClass');
  if(!c){sel.innerHTML='<option>Ingen tävling vald</option>';$('rEvents').innerHTML='';return}
- let all=c.classes||[];
- if(!all.length){sel.innerHTML='<option>Inga klasser i tävlingen</option>';$('rEvents').innerHTML='';return}
- let age=birth?Number(c.date.slice(0,4))-birth:null;
- let sameGender=all.filter(cl=>cl.gender===gender);
- let candidates=sameGender.length?sameGender:all;
- // Välj närmaste klass i rätt kategori; föredra exakt ålder, annars närmast.
- let suggested=age===null?null:[...candidates].sort((x,y)=>{
-   const dx=Math.abs(Number(x.age)-age),dy=Math.abs(Number(y.age)-age);
-   if(dx!==dy)return dx-dy;
-   // Vid lika avstånd: välj hellre den äldre åldersklassen.
-   return Number(y.age)-Number(x.age);
- })[0];
- sel.innerHTML=all.map(cl=>`<option value="${esc(cl.name)}">${esc(cl.name)}${suggested===cl?' – föreslagen':''}</option>`).join('');
+ const all=c.classes||[];
+ const age=birth?Number(c.date.slice(0,4))-birth:null;
+ const eligible=all.filter(cl=>validClass(cl,gender,birth||0,Number(c.date.slice(0,4)),all));
+ // Föreslå närmaste tillåtna åldersklass ovanför/vid åldern.
+ // Om ingen finns: välj närmaste tillåtna yngre klass. KS/MS är reservval.
+ const ageClasses=eligible.filter(cl=>!['KS','MS'].includes(String(cl.name).trim().toUpperCase()));
+ let suggested=null;
+ if(age!==null&&ageClasses.length){
+   const above=ageClasses.filter(cl=>Number(cl.age)>=age).sort((a,b)=>Number(a.age)-Number(b.age));
+   const below=ageClasses.filter(cl=>Number(cl.age)<age).sort((a,b)=>Number(b.age)-Number(a.age));
+   suggested=(above[0]||below[0]||null);
+ }
+ if(!suggested)suggested=eligible.find(cl=>['KS','MS'].includes(String(cl.name).trim().toUpperCase()))||eligible[0]||null;
+ sel.innerHTML=eligible.map(cl=>`<option value="${esc(cl.name)}">${esc(cl.name)}${suggested===cl?' – föreslagen':''}</option>`).join('')||'<option value="">Inga tillåtna klasser</option>';
  if(suggested)sel.value=suggested.name;
  $('classInfo').textContent=age===null
-   ?'Alla klasser som arrangören erbjuder visas. Ange födelseår och kön för att få en föreslagen klass.'
-   :`Tävlingsålder: ${age} år. Föreslagen klass: ${suggested?.name||'ingen'}. Alla arrangörens klasser går att välja. Kontrollera att vald klass är tillåten enligt tävlingens regler.`;
+   ?'Ange födelseår för att få en föreslagen klass. Endast klasser för valt kön visas.'
+   :`Tävlingsålder: ${age} år. ${suggested?'Föreslagen klass: '+suggested.name+'.':'Ingen tillåten klass finns.'} Upp till 35 år väljs närmaste åldersklass uppåt. Över 35 år kan du välja din egen eller en yngre åldersklass. KS/MS är alltid öppna inom respektive kön.`;
  updateEvents();
 }
 function updateEvents(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59');$('rEvents').innerHTML=cl?cl.events.map((e,i)=>`<label class="check"><input type="checkbox" class="eventChoice" value="${i}"> ${esc(e.name)} – ${late?e.late_fee:e.fee} kr</label>`).join(''):'<p class="muted">Inga grenar i vald klass.</p>';document.querySelectorAll('.eventChoice').forEach(e=>e.onchange=updateTotal);updateTotal()}
 function picked(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value);return [...document.querySelectorAll('.eventChoice:checked')].map(e=>cl.events[Number(e.value)])}
 function updateTotal(){let c=selectedComp(),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59'),items=picked(),reg=items.reduce((a,e)=>a+Number(e.fee),0),extra=late?items.reduce((a,e)=>a+Math.max(0,Number(e.late_fee)-Number(e.fee)),0):0;$('rTotal').textContent=(reg+extra)+' kr';$('feeInfo').textContent=extra?`IKHP står för ordinarie avgift. Efteranmälningsavgiften på ${extra} kr ska betalas in till IKHP:s bankgiro enligt bekräftelsemejlet. Ange efteranmälan + namn på inbetalningen.`:'IKHP står för ordinarie anmälningsavgift.'}
 ['rCompetition','rBirth','rGender'].forEach(id=>$(id).onchange=updateClasses);$('rClass').onchange=updateEvents;
-$('registerBtn').onclick=async()=>{let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),events=picked().map(e=>e.name);try{let r=await api('/api/register','POST',{competition_id:c.id,name:$('rName').value,birth_year:Number($('rBirth').value),gender:$('rGender').value,email:$('rEmail').value,class_name:cl?.name,events,club_password:$('rPassword').value,publication_ack:$('rAck').checked});$('registerResult').innerHTML=`<div class="notice ${r.email_status==='sent'?'success':'warning'}">Anmälan #${r.id} registrerad. ${r.email_status==='sent'?'Bekräftelsemejl skickat.':'Bekräftelsemejl kunde inte skickas. Kontakta IKHP för bekräftelse.'}</div>`;$('rPassword').value='';$('rAck').checked=false}catch(e){$('registerResult').innerHTML='<div class="notice error">'+esc(e.message)+'</div>'}};
+$('registerBtn').onclick=async()=>{let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),events=picked().map(e=>e.name);try{let r=await api('/api/register','POST',{competition_id:c.id,name:$('rName').value,birth_year:Number($('rBirth').value),gender:$('rGender').value,email:$('rEmail').value,class_name:cl?.name,events,club_password:$('rPassword').value,publication_ack:$('rAck').checked});$('registerResult').innerHTML=`<div class="notice ${r.email_status==='sent'?'success':'warning'}">Anmälan #${r.id} registrerad i testmiljön. Inget e-postmeddelande skickas.</div>`;$('rPassword').value='';$('rAck').checked=false}catch(e){$('registerResult').innerHTML='<div class="notice error">'+esc(e.message)+'</div>'}};
 async function loadAdmin(){let me=await api('/api/me');isAdmin=me.admin;externalReady=me.external_ready;$('loginBox').classList.toggle('hidden',isAdmin);$('adminContent').classList.toggle('hidden',!isAdmin);if(isAdmin){adminComps=await api('/api/admin/competitions');$('adminCompetitions').innerHTML=adminComps.map(c=>`<div class="entry"><div class="row"><strong>${esc(c.name)} · ${esc(c.date)}</strong><label class="check"><input type="checkbox" ${c.published?'checked':''} onchange="publish(${c.id},this.checked)"> Publicerad</label></div><p class="muted">${c.classes.length} klasser · ${esc(c.source)}</p><div class="actions">${["Manuell","Demodata"].includes(c.source)?`<button class="secondary" onclick="editCompetition(${c.id})">Redigera tävling</button>`:""}</div></div>`).join('')||'Inga tävlingar ännu.'}}
 $('loginBtn').onclick=async()=>{try{await api('/api/login','POST',{password:$('adminPassword').value});$('adminPassword').value='';await loadAdmin()}catch(e){$('loginError').innerHTML='<div class="notice error">'+esc(e.message)+'</div>'}};
 $('logoutBtn').onclick=async()=>{await api('/api/logout','POST',{});isAdmin=false;entries=[];await view('calendar')};

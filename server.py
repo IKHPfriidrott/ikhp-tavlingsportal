@@ -119,16 +119,27 @@ def send_mail(reg,comp):
             smtp.send_message(msg)
 def competition_public(c):
     d=dict(c);d["classes"]=json.loads(d["classes"]);return d
-def valid_class(cl,gender,birth,year):
-    if cl.get("gender")!=gender:return False
+def valid_class(cl, gender, birth, year, classes=None):
+    """Juniorer: enbart närmaste åldersklass uppåt, samt MS/KS.
+    Veteraner över 35: åldersklasser högst egen ålder, samt MS/KS.
+    """
+    name=str(cl.get("name","")).strip().upper()
+    expected="F" if name=="KS" else "P" if name=="MS" else cl.get("gender")
+    if expected!=gender:return False
+    if name in ("KS","MS"):return True
+    try:target=int(cl.get("age",0))
+    except (ValueError,TypeError):return False
+    if target<1:return False
     age=year-birth
-    # Class age must be specified by the admin; younger athletes may move up through 22,
-    # older athletes may move down within veteran classes from 30 upward.
-    target=int(cl.get("age",0))
-    if not target:return False
-    if age<22:return age<=target<=22
-    if age>30:return 30<=target<=age
-    return target==age
+    if age>35:return target<=age
+    available=[]
+    for item in (classes or [cl]):
+        if item.get("gender")!=gender or str(item.get("name","")).upper() in ("MS","KS"):continue
+        try:n=int(item.get("age",0))
+        except (ValueError,TypeError):continue
+        if age<=n<=35:available.append(n)
+    return bool(available) and target==min(available)
+
 class Handler(BaseHTTPRequestHandler):
     def json(self,code,obj):
         b=json.dumps(obj,ensure_ascii=False).encode()
@@ -227,6 +238,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not comp:raise ValueError("Tävlingen är inte publicerad")
                     cl=next((x for x in json.loads(comp["classes"]) if x["name"]==klass),None)
                     if not cl:raise ValueError("Vald klass erbjuds inte i tävlingen")
+                    if not valid_class(cl,gender,birth,int(comp["date"][:4]),json.loads(comp["classes"])):raise ValueError("Vald klass är inte tillåten för deltagarens kön eller tävlingsålder")
                     regular,surcharge,total=event_info(comp,cl,events)
                     cur=c.execute("""INSERT INTO registrations(competition_id,name,birth_year,gender,email,class_name,events,regular_total,late_surcharge,total,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(cid,name,birth,gender,email,klass,json.dumps(events,ensure_ascii=False),regular,surcharge,total,now()))
@@ -242,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
                 name=str(data["name"]).strip();date.fromisoformat(data["date"]);date.fromisoformat(data["regular_deadline"]);date.fromisoformat(data["final_deadline"])
                 if not name or data["regular_deadline"]>data["final_deadline"]:raise ValueError("Kontrollera tävlingens datum")
                 classes=data["classes"]
-                if not classes or any(not x.get("name") or int(x.get("age",0))<1 or not x.get("events") for x in classes):raise ValueError("Lägg till giltiga klasser och grenar")
+                if not classes or any(not x.get("name") or (str(x.get("name","")).strip().upper() not in ("KS","MS") and int(x.get("age",0))<1) or not x.get("events") for x in classes):raise ValueError("Lägg till giltiga klasser och grenar")
                 with connect() as c:
                     cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes) VALUES(?,?,?,?,?,?,?)",(name,data["date"],data["regular_deadline"],data["final_deadline"],str(data.get("url","")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False)))
                 return self.json(201,{"id":cur.lastrowid})
