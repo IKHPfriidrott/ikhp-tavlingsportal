@@ -104,3 +104,6 @@ Deltagare under 20 år får välja samtliga erbjudna åldersklasser från sin t�
 ## Version 11 – klassval och administratörstabell
 - Under 20 år visas samtliga erbjudna klasser från egen ålder till och med 22 år (inklusive närmaste klass ovanför egen ålder), samt MS/KS inom rätt kön. Den närmaste klassen uppåt är förvald. Reglerna från 20 år och uppåt är oförändrade.
 - Historik och officiell anmälningsstatus visar nu en rad per anmälan i en horisontellt rullbar tabell med namn, födelseår, e-post, tävling, klass, grenar, total avgift, efteranmälningsavgift och två åtgärdsknappar på samma rad. Extern vidareanmälan är fortfarande avstängd i testmiljön.
+
+## Version 12 – kompakt historiktabell
+Administrationsvyn visar nu namn och födelseår i samma kolumn (`Namn, födelseår`), klass och grenar i samma kolumn samt `Anmälningsavgift` som totalbelopp med efteranmälningsavgiften inom parentes. Åtgärdsknapparna ligger kvar på samma rad. CSV-exportens detaljerade kolumner är oförändrade.
