@@ -97,3 +97,6 @@ Vid anmälan visas samtliga klasser som finns upplagda för tävlingen, även om
 - Från 23 till och med 34 år: endast åldersklasser från 23 år till och med deltagarens egen ålder, samt MS/KS. En 34-åring kan välja M30, men inte M22 eller M35.
 - Från 35 år: åldersklasser högst deltagarens egen ålder, samt MS/KS.
 - Reglerna kontrolleras både i webbläsaren och på servern.
+
+## Version 10 – klassval under 20 år
+Deltagare under 20 år får välja samtliga erbjudna åldersklasser från sin tävlingsålder till och med 22 år, samt MS/KS för rätt kön. Närmaste klass uppåt är förvald. För 20 år och äldre behålls reglerna från version 9.

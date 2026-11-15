@@ -41,6 +41,7 @@ function validClass(cl,gender,birth,year,classes){
  if(!Number.isFinite(target)||target<1)return false;
  if(age>=35)return target<=age;
  if(age>=23)return target>=23&&target<=age;
+ if(age<20)return target>=age&&target<=22;
  const available=classes.filter(x=>x.gender===gender&&!['KS','MS'].includes(String(x.name||'').trim().toUpperCase()))
   .map(x=>Number(x.age)).filter(n=>Number.isFinite(n)&&n>=age&&n<=22);
  return available.length>0&&target===Math.min(...available);
@@ -71,7 +72,7 @@ function updateClasses(){
  if(suggested)sel.value=suggested.name;
  $('classInfo').textContent=age===null
    ?'Ange födelseår för att få en föreslagen klass. Endast klasser för valt kön visas.'
-   :`Tävlingsålder: ${age} år. ${suggested?'Föreslagen klass: '+suggested.name+'.':'Ingen tillåten klass finns.'} Under 23 år föreslås närmaste klass uppåt (högst 22 år). Mellan 23 och 34 år får man välja klass 23–egen ålder. Från 35 år får man välja egen eller yngre klass. KS/MS är alltid öppna inom respektive kön.`;
+   :`Tävlingsålder: ${age} år. ${suggested?'Föreslagen klass: '+suggested.name+'.':'Ingen tillåten klass finns.'} Under 20 år får man välja alla klasser från egen ålder till 22 år, med närmaste klass uppåt som förslag. För 20–22 år gäller närmaste klass uppåt (högst 22 år). Mellan 23 och 34 år får man välja klass 23–egen ålder. Från 35 år får man välja egen eller yngre klass. KS/MS är alltid öppna inom respektive kön.`;
  updateEvents();
 }
 function updateEvents(){let c=selectedComp(),cl=c?.classes.find(x=>x.name===$('rClass').value),late=c&&new Date()>new Date(c.regular_deadline+'T23:59:59');$('rEvents').innerHTML=cl?cl.events.map((e,i)=>`<label class="check"><input type="checkbox" class="eventChoice" value="${i}"> ${esc(e.name)} – ${late?e.late_fee:e.fee} kr</label>`).join(''):'<p class="muted">Inga grenar i vald klass.</p>';document.querySelectorAll('.eventChoice').forEach(e=>e.onchange=updateTotal);updateTotal()}

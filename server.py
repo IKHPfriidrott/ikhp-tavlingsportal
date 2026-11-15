@@ -150,7 +150,8 @@ def validate_competition_classes(classes):
             event_names.add(en)
 
 def valid_class(cl, gender, birth, year, classes=None):
-    """Under 23: nearest offered class >= age, max 22.
+    """Under 20: all offered classes >= age through 22.
+    Ages 20–22: nearest offered class >= age, max 22.
     Ages 23–34: offered classes from 23 through own age.
     Ages 35+: offered classes up to own age.
     MS/KS: always permitted for matching gender.
@@ -165,6 +166,8 @@ def valid_class(cl, gender, birth, year, classes=None):
     age=year-birth
     if age>=35:return target<=age
     if age>=23:return 23<=target<=age
+    if age<20:
+        return age<=target<=22
     available=[]
     for item in (classes or [cl]):
         if item.get("gender")!=gender or str(item.get("name","")).upper() in ("MS","KS"):continue
