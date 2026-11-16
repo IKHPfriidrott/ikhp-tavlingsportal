@@ -107,3 +107,7 @@ Deltagare under 20 år får välja samtliga erbjudna åldersklasser från sin t�
 
 ## Version 12 – kompakt historiktabell
 Administrationsvyn visar nu namn och födelseår i samma kolumn (`Namn, födelseår`), klass och grenar i samma kolumn samt `Anmälningsavgift` som totalbelopp med efteranmälningsavgiften inom parentes. Åtgärdsknapparna ligger kvar på samma rad. CSV-exportens detaljerade kolumner är oförändrade.
+
+
+## Version 13 – Offentligt Övrigt
+Fältet **Övrigt** är frivilligt i anmälan och visas i separat kolumn under **Visa anmälda**. Befintliga databaser migreras automatiskt. Texten HTML-escapas och anmälaren informeras om offentligheten.

@@ -50,6 +50,9 @@ def init():
         CREATE TABLE IF NOT EXISTS registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,competition_id INTEGER NOT NULL,name TEXT NOT NULL,birth_year INTEGER NOT NULL,gender TEXT NOT NULL,email TEXT NOT NULL,class_name TEXT NOT NULL,events TEXT NOT NULL,regular_total INTEGER NOT NULL,late_surcharge INTEGER NOT NULL,total INTEGER NOT NULL,created_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',external_reference TEXT DEFAULT '',email_status TEXT DEFAULT 'pending',email_error TEXT DEFAULT '',FOREIGN KEY(competition_id) REFERENCES competitions(id));
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,registration_id INTEGER NOT NULL,action TEXT NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(registration_id) REFERENCES registrations(id));
         """)
+        columns={row["name"] for row in c.execute("PRAGMA table_info(registrations)")}
+        if "other_info" not in columns:
+            c.execute("ALTER TABLE registrations ADD COLUMN other_info TEXT NOT NULL DEFAULT ''")
         if not c.execute("SELECT 1 FROM settings WHERE key='club_hash'").fetchone():
             c.execute("INSERT INTO settings VALUES('club_hash',?)",(hash_pw(CLUB),))
         if not c.execute("SELECT 1 FROM competitions").fetchone():
@@ -217,8 +220,8 @@ class Handler(BaseHTTPRequestHandler):
             try:cid=int(p.rsplit("/",1)[1])
             except ValueError:return self.json(400,{"error":"Ogiltigt id"})
             with connect() as c:
-                rows=c.execute("SELECT name,class_name,events FROM registrations WHERE competition_id=? ORDER BY created_at",(cid,)).fetchall()
-            return self.json(200,[dict(name=r["name"],class_name=r["class_name"],events=json.loads(r["events"])) for r in rows])
+                rows=c.execute("SELECT name,class_name,events,other_info FROM registrations WHERE competition_id=? ORDER BY created_at",(cid,)).fetchall()
+            return self.json(200,[dict(name=r["name"],class_name=r["class_name"],events=json.loads(r["events"]),other_info=r["other_info"]) for r in rows])
         if p=="/api/admin/competitions":
             if not self.require_admin():return
             with connect() as c:rows=c.execute("SELECT * FROM competitions ORDER BY date DESC").fetchall()
@@ -263,8 +266,9 @@ class Handler(BaseHTTPRequestHandler):
             if p=="/api/register":
                 cid=int(data["competition_id"]);name=str(data["name"]).strip();email=str(data["email"]).strip()
                 birth=int(data["birth_year"]);gender=str(data["gender"]);klass=str(data["class_name"])
-                events=data["events"];password=str(data.get("club_password",""))
-                if not data.get("publication_ack"):raise ValueError("Bekräfta att namn, klass och grenar visas offentligt")
+                events=data["events"];other_info=str(data.get("other_info","")).strip();password=str(data.get("club_password",""))
+                if len(other_info)>1000:raise ValueError("Övrigt får innehålla högst 1000 tecken")
+                if not data.get("publication_ack"):raise ValueError("Bekräfta att namn, klass, grenar och Övrigt visas offentligt")
                 if not name or len(name)>120 or "@" not in email or len(email)>254 or not 1900<=birth<=date.today().year or gender not in ("F","P"):raise ValueError("Kontrollera deltagaruppgifterna")
                 with connect() as c:
                     stored=c.execute("SELECT value FROM settings WHERE key='club_hash'").fetchone()["value"]
@@ -275,8 +279,8 @@ class Handler(BaseHTTPRequestHandler):
                     if not cl:raise ValueError("Vald klass erbjuds inte i tävlingen")
                     if not valid_class(cl,gender,birth,int(comp["date"][:4]),json.loads(comp["classes"])):raise ValueError("Vald klass är inte tillåten för deltagarens kön eller tävlingsålder")
                     regular,surcharge,total=event_info(comp,cl,events)
-                    cur=c.execute("""INSERT INTO registrations(competition_id,name,birth_year,gender,email,class_name,events,regular_total,late_surcharge,total,created_at)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(cid,name,birth,gender,email,klass,json.dumps(events,ensure_ascii=False),regular,surcharge,total,now()))
+                    cur=c.execute("""INSERT INTO registrations(competition_id,name,birth_year,gender,email,class_name,events,regular_total,late_surcharge,total,created_at,other_info)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",(cid,name,birth,gender,email,klass,json.dumps(events,ensure_ascii=False),regular,surcharge,total,now(),other_info))
                     rid=cur.lastrowid
                     c.execute("INSERT INTO audit(registration_id,action,created_at) VALUES(?,?,?)",(rid,"Mottagen internt",now()))
                     reg=c.execute("SELECT * FROM registrations WHERE id=?",(rid,)).fetchone()
