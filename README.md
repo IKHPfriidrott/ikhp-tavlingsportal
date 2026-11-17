@@ -111,3 +111,17 @@ Administrationsvyn visar nu namn och födelseår i samma kolumn (`Namn, födelse
 
 ## Version 13 – Offentligt Övrigt
 Fältet **Övrigt** är frivilligt i anmälan och visas i separat kolumn under **Visa anmälda**. Befintliga databaser migreras automatiskt. Texten HTML-escapas och anmälaren informeras om offentligheten.
+
+
+## Version 14
+- Automatisk extern anmälningsöverföring har tagits bort från gränssnitt och server. Endast manuell officiell bekräftelse finns kvar.
+- Roster Athletics finns som importkälla i admin. Importen tar strukturerad JSON med `competitions` och kräver `country` = `SE`, `SWE`, `Sweden` eller `Sverige`, en HTTPS-länk på rosterathletics.com, datum och validerade klasser/grenar/avgifter. Poster med annat eller okänt land hoppas över.
+- Importerade tävlingar publiceras inte automatiskt. Dubbletter med samma URL hoppas över.
+- OBS: Detta är en manuell dataimport, inte en automatisk hämtning från Roster Athletics. API-avtal och dokumenterat läsgränssnitt behövs för automatisk synkronisering.
+
+
+## Version 15 – Anmälan på egen hand
+Administratören kan kryssa i **Anmälaren anmäler själv** per tävling, även för importerade tävlingar. Då leder knappen Anmäl till en särskild informationssida med länk till tävlingshemsidan och IKHP:s ersättningsblankett samt ersättningstaken 350 kr (ungdom/junior) och 280 kr (vuxen) per dag och tävling. Interna anmälningar blockeras också på serversidan för sådana tävlingar. Befintliga databaser migreras automatiskt.
+
+## Version 16
+Ordet **anmälningssystem** på informationssidan för egen anmälan länkar till tävlingens angivna hemsida. Kalenderns introduktionstext är uppdaterad enligt önskemål.

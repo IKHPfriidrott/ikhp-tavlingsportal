@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """IKHP portal. Python 3.10+, no third-party packages."""
-import os, json, sqlite3, secrets, hashlib, hmac, smtplib, ssl, urllib.request, urllib.error, threading
+import os, json, sqlite3, secrets, hashlib, hmac, smtplib, ssl, threading
 from datetime import datetime, timezone, date, timedelta
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
@@ -19,8 +19,6 @@ SMTP_USER=os.environ.get("SMTP_USER","")
 SMTP_PASSWORD=os.environ.get("SMTP_PASSWORD","")
 SMTP_FROM=os.environ.get("SMTP_FROM","")
 SMTP_SSL=os.environ.get("SMTP_SSL","false").lower()=="true"
-EXTERNAL_URL=os.environ.get("IKHP_EXTERNAL_API_URL","")
-EXTERNAL_TOKEN=os.environ.get("IKHP_EXTERNAL_API_TOKEN","")
 PORT=int(os.environ.get("PORT","8080"))
 sessions={}
 login_attempts={}
@@ -50,6 +48,9 @@ def init():
         CREATE TABLE IF NOT EXISTS registrations(id INTEGER PRIMARY KEY AUTOINCREMENT,competition_id INTEGER NOT NULL,name TEXT NOT NULL,birth_year INTEGER NOT NULL,gender TEXT NOT NULL,email TEXT NOT NULL,class_name TEXT NOT NULL,events TEXT NOT NULL,regular_total INTEGER NOT NULL,late_surcharge INTEGER NOT NULL,total INTEGER NOT NULL,created_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',external_reference TEXT DEFAULT '',email_status TEXT DEFAULT 'pending',email_error TEXT DEFAULT '',FOREIGN KEY(competition_id) REFERENCES competitions(id));
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,registration_id INTEGER NOT NULL,action TEXT NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(registration_id) REFERENCES registrations(id));
         """)
+        competition_columns={row["name"] for row in c.execute("PRAGMA table_info(competitions)")}
+        if "self_registration" not in competition_columns:
+            c.execute("ALTER TABLE competitions ADD COLUMN self_registration INTEGER NOT NULL DEFAULT 0")
         columns={row["name"] for row in c.execute("PRAGMA table_info(registrations)")}
         if "other_info" not in columns:
             c.execute("ALTER TABLE registrations ADD COLUMN other_info TEXT NOT NULL DEFAULT ''")
@@ -275,6 +276,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not verify(password,stored):return self.json(403,{"error":"Felaktigt klubb-lösenord"})
                     comp=c.execute("SELECT * FROM competitions WHERE id=? AND published=1",(cid,)).fetchone()
                     if not comp:raise ValueError("Tävlingen är inte publicerad")
+                    if comp["self_registration"]:raise ValueError("Denna tävling anmäls direkt hos arrangören, inte via IKHP:s portal")
                     cl=next((x for x in json.loads(comp["classes"]) if x["name"]==klass),None)
                     if not cl:raise ValueError("Vald klass erbjuds inte i tävlingen")
                     if not valid_class(cl,gender,birth,int(comp["date"][:4]),json.loads(comp["classes"])):raise ValueError("Vald klass är inte tillåten för deltagarens kön eller tävlingsålder")
@@ -288,6 +290,32 @@ class Handler(BaseHTTPRequestHandler):
                 error="E-postutskick är avstängt i testmiljön"
                 with connect() as c:c.execute("UPDATE registrations SET email_status=?,email_error=? WHERE id=?",(email_status,error,rid))
                 return self.json(201,{"id":rid,"email_status":email_status,"regular_total":regular,"late_surcharge":surcharge,"total":total})
+            if p=="/api/admin/import-roster":
+                if not self.require_admin():return
+                items=data.get("competitions",[])
+                if not isinstance(items,list) or len(items)>200:raise ValueError("Ange en lista med högst 200 tävlingar")
+                added=0;skipped=0
+                with connect() as c:
+                    for item in items:
+                        if not isinstance(item,dict):raise ValueError("Ogiltig tävlingspost")
+                        country=str(item.get("country","")).strip().lower()
+                        if country not in ("se","swe","sweden","sverige"):
+                            skipped+=1;continue
+                        name=str(item.get("name","")).strip()
+                        day=str(item.get("date", ""));regular=str(item.get("regular_deadline", ""));final=str(item.get("final_deadline", ""))
+                        for d in (day,regular,final):date.fromisoformat(d)
+                        if not name or len(name)>200 or regular>final:raise ValueError("Felaktigt namn eller datum")
+                        url=str(item.get("url", "")).strip()
+                        parsed=urlparse(url)
+                        if parsed.scheme!="https" or parsed.hostname not in ("rosterathletics.com","meets.rosterathletics.com","www.rosterathletics.com"):
+                            raise ValueError("Tävlingen måste ha en giltig Roster Athletics-länk")
+                        classes=item.get("classes",[])
+                        validate_competition_classes(classes)
+                        if c.execute("SELECT 1 FROM competitions WHERE url=?",(url,)).fetchone():
+                            skipped+=1;continue
+                        c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,source,classes) VALUES(?,?,?,?,?,0,'Roster Athletics',?)",(name,day,regular,final,url,json.dumps(classes,ensure_ascii=False)))
+                        added+=1
+                return self.json(200,{"added":added,"skipped":skipped})
             if p=="/api/admin/competitions":
                 if not self.require_admin():return
                 name=str(data["name"]).strip();date.fromisoformat(data["date"]);date.fromisoformat(data["regular_deadline"]);date.fromisoformat(data["final_deadline"])
@@ -295,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
                 classes=data["classes"]
                 validate_competition_classes(classes)
                 with connect() as c:
-                    cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes) VALUES(?,?,?,?,?,?,?)",(name,data["date"],data["regular_deadline"],data["final_deadline"],str(data.get("url","")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False)))
+                    cur=c.execute("INSERT INTO competitions(name,date,regular_deadline,final_deadline,url,published,classes,self_registration) VALUES(?,?,?,?,?,?,?,?)",(name,data["date"],data["regular_deadline"],data["final_deadline"],str(data.get("url","")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False),int(bool(data.get("self_registration",False)))))
                 return self.json(201,{"id":cur.lastrowid})
             if p.startswith("/api/admin/edit-competition/"):
                 if not self.require_admin():return
@@ -310,7 +338,14 @@ class Handler(BaseHTTPRequestHandler):
                     old=c.execute("SELECT source FROM competitions WHERE id=?",(cid,)).fetchone()
                     if not old:raise ValueError("Tävlingen finns inte")
                     if old["source"] not in ("Manuell","Demodata"):return self.json(403,{"error":"Endast manuellt registrerade tävlingar kan ändras"})
-                    c.execute("UPDATE competitions SET name=?,date=?,regular_deadline=?,final_deadline=?,url=?,published=?,classes=? WHERE id=?",(name,day,regular,final,str(data.get("url", "")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False),cid))
+                    c.execute("UPDATE competitions SET name=?,date=?,regular_deadline=?,final_deadline=?,url=?,published=?,classes=?,self_registration=? WHERE id=?",(name,day,regular,final,str(data.get("url", "")),int(bool(data.get("published",False))),json.dumps(classes,ensure_ascii=False),int(bool(data.get("self_registration",False))),cid))
+                return self.json(200,{"ok":True})
+            if p.startswith("/api/admin/self-registration/"):
+                if not self.require_admin():return
+                cid=int(p.rsplit("/",1)[1])
+                with connect() as c:
+                    if c.execute("UPDATE competitions SET self_registration=? WHERE id=?",(int(bool(data.get("self_registration",False))),cid)).rowcount==0:
+                        raise ValueError("Tävlingen finns inte")
                 return self.json(200,{"ok":True})
             if p.startswith("/api/admin/competition/"):
                 if not self.require_admin():return
@@ -328,29 +363,6 @@ class Handler(BaseHTTPRequestHandler):
                     c.execute("UPDATE registrations SET status='confirmed' WHERE id=?",(rid,))
                     c.execute("INSERT INTO audit(registration_id,action,created_at) VALUES(?,?,?)",(rid,"Manuellt bekräftad som officiellt registrerad",now()))
                 return self.json(200,{"ok":True})
-            if p.startswith("/api/admin/send/"):
-                if not self.require_admin():return
-                if TEST_MODE:return self.json(409,{"error":"Vidareanmälan är avstängd i testmiljön"})
-                if not EXTERNAL_URL or not EXTERNAL_TOKEN:return self.json(409,{"error":"Ingen verifierad integration för vidareanmälan är konfigurerad"})
-                rid=int(p.rsplit("/",1)[1])
-                with connect() as c:
-                    r=c.execute("SELECT * FROM registrations WHERE id=?",(rid,)).fetchone()
-                    if not r:raise ValueError("Anmälan finns inte")
-                    if r["status"]=="confirmed":return self.json(409,{"error":"Anmälan är redan officiellt registrerad"})
-                    comp=c.execute("SELECT * FROM competitions WHERE id=?",(r["competition_id"],)).fetchone()
-                payload=json.dumps({"registration_id":rid,"competition":comp["name"],"name":r["name"],"birth_year":r["birth_year"],"gender":r["gender"],"class_name":r["class_name"],"events":json.loads(r["events"])},ensure_ascii=False).encode()
-                request=urllib.request.Request(EXTERNAL_URL,data=payload,headers={"Content-Type":"application/json","Authorization":"Bearer "+EXTERNAL_TOKEN,"Idempotency-Key":str(rid)},method="POST")
-                try:
-                    with urllib.request.urlopen(request,timeout=20) as response:
-                        result=json.load(response)
-                    if result.get("status")!="confirmed" or not result.get("reference"):raise ValueError("Extern tjänst bekräftade inte anmälan")
-                except (urllib.error.URLError,ValueError) as ex:
-                    with connect() as c:c.execute("INSERT INTO audit(registration_id,action,created_at) VALUES(?,?,?)",(rid,"Överföringsförsök misslyckades: "+str(ex)[:150],now()))
-                    return self.json(502,{"error":"Överföringen kunde inte bekräftas. Kontrollera mottagarsystemet före nytt försök."})
-                with connect() as c:
-                    c.execute("UPDATE registrations SET status='confirmed',external_reference=? WHERE id=?",(str(result["reference"]),rid))
-                    c.execute("INSERT INTO audit(registration_id,action,created_at) VALUES(?,?,?)",(rid,"Externt bekräftad: "+str(result["reference"]),now()))
-                return self.json(200,{"ok":True,"reference":result["reference"]})
             return self.json(404,{"error":"Okänd adress"})
         except (ValueError,KeyError,TypeError,OverflowError) as ex:return self.json(400,{"error":str(ex)})
         except Exception as ex:
